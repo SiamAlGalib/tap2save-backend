@@ -474,12 +474,19 @@ app.get('/api/download', downloadLimiter, async (req, res) => {
   );
 
   let killed = false;
+  let activeProcs = [];
   const cleanup = (...procs) => {
     if (killed) return;
     killed = true;
-    procs.forEach((p) => p && !p.killed && p.kill('SIGKILL'));
+    const targets = procs.length ? procs : activeProcs;
+    targets.forEach((p) => p && !p.killed && p.kill('SIGKILL'));
   };
-  req.on('close', () => cleanup());
+
+  // The request "close" event also fires after a normal request is received.
+  // Watch the response so work is cancelled only on an actual client disconnect.
+  res.on('close', () => {
+    if (!res.writableEnded) cleanup(...activeProcs);
+  });
 
   const attemptAudio = async (clients, useCookies) => {
     const ytArgs = [
@@ -493,6 +500,7 @@ app.get('/api/download', downloadLimiter, async (req, res) => {
     const ffArgs = ['-loglevel', 'error', '-i', 'pipe:0', '-vn', '-acodec', 'libmp3lame', '-q:a', '2', '-f', 'mp3', 'pipe:1'];
     const yt = spawn(YTDLP_PATH, withCookies(ytArgs, clients, useCookies));
     const ff = spawn(FFMPEG_PATH, ffArgs);
+    activeProcs = [yt, ff];
     yt.stdout.pipe(ff.stdin);
     const { firstChunk } = await runChainAndWaitForFirstByte([yt, ff]);
     return { procs: [yt, ff], finalStream: ff.stdout, firstChunk };
@@ -524,6 +532,7 @@ app.get('/api/download', downloadLimiter, async (req, res) => {
       url,
     ];
     const yt = spawn(YTDLP_PATH, withCookies(ytArgs, clients, useCookies));
+    activeProcs = [yt];
     const { firstChunk } = await runChainAndWaitForFirstByte([yt]);
     return { procs: [yt], finalStream: yt.stdout, firstChunk };
   };
@@ -566,7 +575,6 @@ app.get('/api/download', downloadLimiter, async (req, res) => {
   res.write(result.firstChunk);
   result.finalStream.pipe(res);
   result.finalStream.on('error', () => cleanup(...result.procs));
-  req.on('close', () => cleanup(...result.procs));
 });
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
