@@ -136,12 +136,19 @@ const CLIENT_FALLBACKS = [
   null,              // plain mode - no client/PO-token override at all
 ];
 
+const corsOptions = {
+  // Reflect the requesting origin when wildcard access is enabled.
+  // This is required for browser fetch() calls from the hosted frontend.
+  origin: ALLOWED_ORIGINS.includes('*') ? true : ALLOWED_ORIGINS,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 204,
+};
+
+// Register CORS before body parsing and explicitly handle browser preflight.
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 app.use(express.json({ limit: '32kb' }));
-app.use(
-  cors({
-    origin: ALLOWED_ORIGINS.includes('*') ? true : ALLOWED_ORIGINS,
-  })
-);
 
 // ---------------------------------------------------------------------
 // Basic abuse protection
